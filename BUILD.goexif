@@ -1,0 +1,17 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_prefix")
+
+go_prefix("github.com/rwcarlsen/goexif")
+
+go_library(
+    name = "exif",
+    srcs = [ "exif/exif.go", "exif/fields.go" ],
+    visibility = ["//visibility:public"],
+    deps = [":tiff"],
+)
+
+go_library(
+    name = "tiff",
+    srcs = [ "tiff/tag.go", "tiff/tiff.go" ],
+    visibility = ["//visibility:public"],
+)
+
