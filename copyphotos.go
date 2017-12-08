@@ -19,9 +19,13 @@ import (
 )
 
 const form = "2006:01:02 15:04:05"
-const folder_format = "2006_01_02"
 
-var dryRun = true
+var (
+	dryRun = true
+    folder_format = "2006_01_02"
+    raw_format = "2006_01_02_RAW"
+    mov_format = "2006_01_02_MOV"
+)
 
 // PhotoType indicates whether the photo is a RAW, JPG, TIF or MOV.
 type PhotoType int
@@ -176,11 +180,16 @@ func (m *fileMover) decode(path string, ptype PhotoType) error {
 	}
 
 	// Generate the output folder name
-	folder := t.Format(folder_format)
-	if ptype == kRaw {
-		folder = folder + "_RAW"
-	} else if ptype == kMov {
-		folder = folder + "_MOV"
+	var folder string
+	switch (ptype) {
+		case kRaw:
+			folder = t.Format(raw_format)
+			break
+		case kMov:
+			folder = t.Format(mov_format)
+			break
+		default:
+			folder = t.Format(folder_format)
 	}
 	dest := filepath.Join(m.destPath, folder, filepath.Base(path))
 	if exists(dest) {
@@ -271,6 +280,10 @@ const kUsage = `
 Usage: %s [-n][-cp] <src> <dest>
   -n      dryrun
   -cp     copy [default is move]
+  -f  %s
+  -r  %s
+  -m  %s
+
   <src>   source path
   <dest>  destination path
 `
@@ -279,9 +292,15 @@ func main() {
 	var flag_cp bool
 	flag.BoolVar(&dryRun, "n", false, "Dryrun")
 	flag.BoolVar(&flag_cp, "cp", false, "Copy, don't move.")
+
+	// Setup the folder formats
+    flag.StringVar(&folder_format, "f", "2006/2006-01-02", "Basic format")
+    flag.StringVar(&raw_format, "r", "2006/2006-01-02", "Basic format")
+    flag.StringVar(&mov_format, "m", "2006/2006-01-02", "Basic format")
+
 	flag.Parse()
 	if flag.NArg() != 2 {
-		fmt.Printf(kUsage, os.Args[0])
+		fmt.Printf(kUsage, os.Args[0], folder_format, raw_format, mov_format)
 		return
 	}
 	for i := 0; i < 2; i++ {

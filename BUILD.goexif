@@ -7,11 +7,13 @@ go_library(
     srcs = [ "exif/exif.go", "exif/fields.go" ],
     visibility = ["//visibility:public"],
     deps = [":tiff"],
+    importpath = "github.com/rwcarlsen/goexif/exif",    
 )
 
 go_library(
     name = "tiff",
     srcs = [ "tiff/tag.go", "tiff/tiff.go" ],
+    importpath = "github.com/rwcarlsen/goexif/tiff",    
     visibility = ["//visibility:public"],
 )
 

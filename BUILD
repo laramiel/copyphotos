@@ -10,6 +10,7 @@ go_binary(
     name = "copyphotos",
     srcs = ["copyphotos.go"],
     deps = [
+#		"@com_github_rwcarlsen_goexif//:go_default_library",
         "@goexif//:tiff",
         "@goexif//:exif",
     ]
