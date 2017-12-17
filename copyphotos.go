@@ -38,6 +38,15 @@ const (
 	kMov
 )
 
+type CopyMode int
+
+const (
+	mCopy CopyMode = iota
+	mMove
+	mDeleteIfExists
+	mCopyAndDeleteIfExists
+)
+
 // GetPhotoType returns the PhotoType from the file extension.
 func GetPhotoType(ext string) PhotoType {
 	if ext == ".jpg" ||
@@ -71,11 +80,11 @@ func cp(dst, src string) error {
 	if err != nil {
 		return err
 	}
+	defer d.Close()
 	if _, err := io.Copy(d, s); err != nil {
-		d.Close()
 		return err
 	}
-	return d.Close()
+	return d.Sync()
 }
 
 // exists returns whether the file or directory exists.
@@ -129,7 +138,8 @@ type moveEntry struct {
 type fileMover struct {
 	sourcePath string
 	destPath   string
-	isCopy     bool
+    CopyMode   CopyMode
+    cpLarge    bool
 	queue      chan moveEntry
 }
 
@@ -200,49 +210,97 @@ func (m *fileMover) decode(path string, ptype PhotoType) error {
 }
 
 // Move consumes the
-func (m *fileMover) move(wg *sync.WaitGroup) {
-	for e := range m.queue {
-		if exists(e.dest) {
-			continue
-		}
-		dest_dir := filepath.Dir(e.dest)
-		dir_exists := exists(dest_dir)
-		if !dir_exists {
-			fmt.Printf("mkdir -p %v\n", dest_dir)
-		}
-		fmt.Printf("mv %v %v\n", e.source, e.dest)
-
-		if !dryRun {
-			if !dir_exists {
-				os.MkdirAll(dest_dir, 0777)
+func (m *fileMover) move(e moveEntry) {
+	// Test existance of dest.
+	dinfo, err := os.Stat(e.dest)
+	if err == nil {
+		sinfo, err := os.Stat(e.source)
+		if err == nil && sinfo.Size() > dinfo.Size() {
+			if !m.cpLarge {
+				fmt.Printf("diff %v %v\n", e.source, e.dest)
+				return
 			}
-			os.Rename(e.source, e.dest)
+		} else {
+			return
 		}
 	}
-	wg.Done()
+	if !os.IsNotExist(err) {
+		return
+	}
+
+	dest_dir := filepath.Dir(e.dest)
+	dir_exists := exists(dest_dir)
+	if !dir_exists {
+		fmt.Printf("mkdir -p %v\n", dest_dir)
+	}
+	fmt.Printf("mv %v %v\n", e.source, e.dest)
+
+	if !dryRun {
+		if !dir_exists {
+			os.MkdirAll(dest_dir, 0777)
+		}
+		os.Rename(e.source, e.dest)
+	}
 }
 
-func (m *fileMover) copy(wg *sync.WaitGroup) {
-	for e := range m.queue {
-		if exists(e.dest) {
-			continue
-		}
-		dest_dir := filepath.Dir(e.dest)
-		dir_exists := exists(dest_dir)
-		if !dir_exists {
-			fmt.Printf("mkdir -p %v\n", dest_dir)
-		}
-		fmt.Printf("cp %v %v\n", e.source, e.dest)
-
-		if !dryRun {
-			if !dir_exists {
-				os.MkdirAll(dest_dir, 0777)
+func (m *fileMover) copy(e moveEntry) {
+	// Test existance of dest.
+	dinfo, err := os.Stat(e.dest)
+	if err == nil {
+		sinfo, err := os.Stat(e.source)
+		if err == nil && sinfo.Size() > dinfo.Size() {
+			if !m.cpLarge {
+				fmt.Printf("diff %v %v\n", e.source, e.dest)
+				return
 			}
-			cp(e.dest, e.source)
+		} else {
+			return
 		}
 	}
-	wg.Done()
+	if !os.IsNotExist(err) {
+		return
+	}
+	dest_dir := filepath.Dir(e.dest)
+	dir_exists := exists(dest_dir)
+	if !dir_exists {
+		fmt.Printf("mkdir -p %v\n", dest_dir)
+	}
+	fmt.Printf("cp %v %v\n", e.source, e.dest)
+
+	if !dryRun {
+		if !dir_exists {
+			os.MkdirAll(dest_dir, 0777)
+		}
+		cp(e.dest, e.source)
+	}
 }
+
+func (m *fileMover) deleteIfExists(e moveEntry) {
+	dinfo, err := os.Stat(e.dest)
+	if err != nil {
+		// File does not exist; not readable.
+		return
+	}
+	sinfo, err := os.Stat(e.source)
+	if err != nil {
+		// File does not exist; can't remove it.
+		return
+	}
+    if os.SameFile(sinfo, dinfo) {
+    	// Same file; don't remove.
+        return
+    }
+    if sinfo.Size() != dinfo.Size() {
+    	// Not same size; don't remove.
+        return
+    }
+    // TODO: checksum both files?
+	fmt.Printf("rm %v\n", e.source)
+	if !dryRun {
+		os.Remove(e.source);
+	}
+}
+
 
 // Run the copy/move operation.
 func (m *fileMover) Run() {
@@ -264,22 +322,47 @@ func (m *fileMover) Run() {
 
 	// start several threads copying files
 	var wg2 sync.WaitGroup
-	if m.isCopy {
-		wg2.Add(2)
-		go m.copy(&wg2)
-		go m.copy(&wg2)
-	} else {
-		wg2.Add(2)
-		go m.move(&wg2)
-		go m.move(&wg2)
-	}
+	switch m.CopyMode {
+		case mCopy:
+			f := func() {
+				for e := range m.queue {
+					m.copy(e)
+				}
+				wg2.Done()
+			}	
+			wg2.Add(2)
+			go f()
+			go f()
+		case mMove:
+			f := func() {
+				for e := range m.queue {
+					m.move(e)
+				}
+				wg2.Done()
+			}	
+			wg2.Add(2)
+			go f()
+			go f()
+
+		case mDeleteIfExists:
+			f := func() {
+				for e := range m.queue {
+					m.deleteIfExists(e)
+				}
+				wg2.Done()
+			}	
+			wg2.Add(1)
+			go f()
+	}	
 	wg2.Wait()
 }
 
 const kUsage = `
 Usage: %s [-n][-cp] <src> <dest>
-  -n      dryrun
-  -cp     copy [default is move]
+  -n       dryrun
+  -cp      copy [default is move]
+  -del     delete [default is move]
+  -large   copy larger files
   -f  %s
   -r  %s
   -m  %s
@@ -290,8 +373,12 @@ Usage: %s [-n][-cp] <src> <dest>
 
 func main() {
 	var flag_cp bool
+	var flag_del bool
+	var flag_large bool
 	flag.BoolVar(&dryRun, "n", false, "Dryrun")
 	flag.BoolVar(&flag_cp, "cp", false, "Copy, don't move.")
+	flag.BoolVar(&flag_del, "del", false, "Delete if exists.")
+	flag.BoolVar(&flag_large, "large", false, "Copy larger files.")
 
 	// Setup the folder formats
     flag.StringVar(&folder_format, "f", "2006/2006-01-02", "Basic format")
@@ -308,10 +395,18 @@ func main() {
 			fmt.Printf("Path does not exist: %s\n", flag.Arg(i))
 		}
 	}
+
+	var mode CopyMode = mMove;
+	if flag_cp {
+		mode = mCopy
+	} else if flag_del {
+		mode = mDeleteIfExists
+	}
 	fileMover := &fileMover{
 		flag.Arg(0),
 		flag.Arg(1),
-		flag_cp,
+		mode,
+		flag_large,
 		nil,
 	}
 	fileMover.Run()
