@@ -21,10 +21,10 @@ import (
 const form = "2006:01:02 15:04:05"
 
 var (
-	dryRun = true
-    folder_format = "2006_01_02"
-    raw_format = "2006_01_02_RAW"
-    mov_format = "2006_01_02_MOV"
+	dryRun        = true
+	folder_format = "2006_01_02"
+	raw_format    = "2006_01_02_RAW"
+	mov_format    = "2006_01_02_MOV"
 )
 
 // PhotoType indicates whether the photo is a RAW, JPG, TIF or MOV.
@@ -138,8 +138,8 @@ type moveEntry struct {
 type fileMover struct {
 	sourcePath string
 	destPath   string
-    CopyMode   CopyMode
-    cpLarge    bool
+	CopyMode   CopyMode
+	cpLarge    bool
 	queue      chan moveEntry
 }
 
@@ -191,15 +191,15 @@ func (m *fileMover) decode(path string, ptype PhotoType) error {
 
 	// Generate the output folder name
 	var folder string
-	switch (ptype) {
-		case kRaw:
-			folder = t.Format(raw_format)
-			break
-		case kMov:
-			folder = t.Format(mov_format)
-			break
-		default:
-			folder = t.Format(folder_format)
+	switch ptype {
+	case kRaw:
+		folder = t.Format(raw_format)
+		break
+	case kMov:
+		folder = t.Format(mov_format)
+		break
+	default:
+		folder = t.Format(folder_format)
 	}
 	dest := filepath.Join(m.destPath, folder, filepath.Base(path))
 	if exists(dest) {
@@ -286,21 +286,20 @@ func (m *fileMover) deleteIfExists(e moveEntry) {
 		// File does not exist; can't remove it.
 		return
 	}
-    if os.SameFile(sinfo, dinfo) {
-    	// Same file; don't remove.
-        return
-    }
-    if sinfo.Size() != dinfo.Size() {
-    	// Not same size; don't remove.
-        return
-    }
-    // TODO: checksum both files?
+	if os.SameFile(sinfo, dinfo) {
+		// Same file; don't remove.
+		return
+	}
+	if sinfo.Size() != dinfo.Size() {
+		// Not same size; don't remove.
+		return
+	}
+	// TODO: checksum both files?
 	fmt.Printf("rm %v\n", e.source)
 	if !dryRun {
-		os.Remove(e.source);
+		os.Remove(e.source)
 	}
 }
-
 
 // Run the copy/move operation.
 func (m *fileMover) Run() {
@@ -323,37 +322,37 @@ func (m *fileMover) Run() {
 	// start several threads copying files
 	var wg2 sync.WaitGroup
 	switch m.CopyMode {
-		case mCopy:
-			f := func() {
-				for e := range m.queue {
-					m.copy(e)
-				}
-				wg2.Done()
-			}	
-			wg2.Add(2)
-			go f()
-			go f()
-		case mMove:
-			f := func() {
-				for e := range m.queue {
-					m.move(e)
-				}
-				wg2.Done()
-			}	
-			wg2.Add(2)
-			go f()
-			go f()
+	case mCopy:
+		f := func() {
+			for e := range m.queue {
+				m.copy(e)
+			}
+			wg2.Done()
+		}
+		wg2.Add(2)
+		go f()
+		go f()
+	case mMove:
+		f := func() {
+			for e := range m.queue {
+				m.move(e)
+			}
+			wg2.Done()
+		}
+		wg2.Add(2)
+		go f()
+		go f()
 
-		case mDeleteIfExists:
-			f := func() {
-				for e := range m.queue {
-					m.deleteIfExists(e)
-				}
-				wg2.Done()
-			}	
-			wg2.Add(1)
-			go f()
-	}	
+	case mDeleteIfExists:
+		f := func() {
+			for e := range m.queue {
+				m.deleteIfExists(e)
+			}
+			wg2.Done()
+		}
+		wg2.Add(1)
+		go f()
+	}
 	wg2.Wait()
 }
 
@@ -381,9 +380,9 @@ func main() {
 	flag.BoolVar(&flag_large, "large", false, "Copy larger files.")
 
 	// Setup the folder formats
-    flag.StringVar(&folder_format, "f", "2006/2006-01-02", "Basic format")
-    flag.StringVar(&raw_format, "r", "2006/2006-01-02", "Basic format")
-    flag.StringVar(&mov_format, "m", "2006/2006-01-02", "Basic format")
+	flag.StringVar(&folder_format, "f", "2006/2006-01-02", "Basic format")
+	flag.StringVar(&raw_format, "r", "2006/2006-01-02", "Raw format")
+	flag.StringVar(&mov_format, "m", "2006/2006-01-02", "Mov format")
 
 	flag.Parse()
 	if flag.NArg() != 2 {
@@ -396,11 +395,15 @@ func main() {
 		}
 	}
 
-	var mode CopyMode = mMove;
+	var mode CopyMode = mMove
 	if flag_cp {
 		mode = mCopy
+		fmt.Printf("Mode: copy\n")
 	} else if flag_del {
 		mode = mDeleteIfExists
+		fmt.Printf("Mode: delete\n")
+	} else {
+		fmt.Printf("Mode: move\n")
 	}
 	fileMover := &fileMover{
 		flag.Arg(0),
