@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"regexp"
 )
 
 import (
@@ -21,10 +22,11 @@ import (
 const form = "2006:01:02 15:04:05"
 
 var (
-	dryRun        = true
-	folder_format = "2006_01_02"
-	raw_format    = "2006_01_02_RAW"
-	mov_format    = "2006_01_02_MOV"
+	dryRun         = true
+	folder_format  = "2006_01_02"
+	raw_format     = "2006_01_02_RAW"
+	mov_format     = "2006_01_02_MOV"
+	exclude_pattern *regexp.Regexp = nil
 )
 
 // PhotoType indicates whether the photo is a RAW, JPG, TIF or MOV.
@@ -113,8 +115,11 @@ func (p *pathWalker) producer(path string, info os.FileInfo, _ error) error {
 	if info.IsDir() {
 		return nil
 	}
-	ext := strings.ToLower(filepath.Ext(path))
-	ptype := GetPhotoType(ext)
+	lowerpath := strings.ToLower(path)
+	if exclude_pattern != nil && exclude_pattern.MatchString(lowerpath) {
+		return nil
+	}
+	ptype := GetPhotoType(filepath.Ext(lowerpath))
 	if ptype == kNone {
 		return nil
 	}
@@ -362,6 +367,7 @@ Usage: %s [-n][-cp] <src> <dest>
   -cp      copy [default is move]
   -del     delete [default is move]
   -large   copy larger files
+  -x       eXclude regularexpression match
   -f  %s
   -r  %s
   -m  %s
@@ -374,6 +380,7 @@ func main() {
 	var flag_cp bool
 	var flag_del bool
 	var flag_large bool
+	var exclude string
 	flag.BoolVar(&dryRun, "n", false, "Dryrun")
 	flag.BoolVar(&flag_cp, "cp", false, "Copy, don't move.")
 	flag.BoolVar(&flag_del, "del", false, "Delete if exists.")
@@ -383,8 +390,13 @@ func main() {
 	flag.StringVar(&folder_format, "f", "2006/2006-01-02", "Basic format")
 	flag.StringVar(&raw_format, "r", "2006/2006-01-02", "Raw format")
 	flag.StringVar(&mov_format, "m", "2006/2006-01-02", "Mov format")
+    flag.StringVar(&exclude, "x", "", "Exclude files which match this regexp")
 
 	flag.Parse()
+
+    if exclude != "" {
+    	exclude_pattern = regexp.MustCompile(exclude)
+    }
 	if flag.NArg() != 2 {
 		fmt.Printf(kUsage, os.Args[0], folder_format, raw_format, mov_format)
 		return
